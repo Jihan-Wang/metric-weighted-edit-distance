@@ -1,0 +1,59 @@
+name: Build paper
+
+on:
+  push:
+    paths:
+      - 'paper/main.tex'
+      - '.github/workflows/build-paper.yml'
+  pull_request:
+    paths:
+      - 'paper/main.tex'
+      - '.github/workflows/build-paper.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check whether the manuscript is uploaded
+        id: source
+        shell: bash
+        run: |
+          if [ -f paper/main.tex ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "The repository owner has not uploaded paper/main.tex yet. Compilation was skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Install TeX dependencies
+        if: steps.source.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends latexmk texlive-latex-extra texlive-fonts-recommended lmodern
+      - name: Compile the manuscript
+        if: steps.source.outputs.present == 'true'
+        run: latexmk -pdf -interaction=nonstopmode -halt-on-error -file-line-error -outdir=build paper/main.tex
+      - name: Check unresolved references
+        if: steps.source.outputs.present == 'true'
+        shell: bash
+        run: |
+          if grep -Eiq 'undefined references|Citation .* undefined|Reference .* undefined' build/main.log; then
+            cat build/main.log
+            exit 1
+          fi
+      - name: Upload compiled PDF
+        if: steps.source.outputs.present == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: metric-weighted-edit-distance-paper
+          path: build/main.pdf
+          if-no-files-found: error
+          retention-days: 30
